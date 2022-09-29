@@ -1,0 +1,107 @@
+---
+title: "PublishedData"
+format: html
+editor: visual
+---
+
+## Load Packages
+
+All package versions are recorded in a `renv` environment that is saved in the `renv.lock` . You can `install.packages('renv')` the and then automatically install a local copy of each dependency into the project folder using `renv::activate()`
+
+```{r}
+library(tidyverse)
+library(ggtext)
+library(Seurat)
+library(Signac)
+```
+
+## Load Data
+
+-   10X Multiome dataset published in [Meijer et al. 2022. Neuron](https://doi.org/10.1016/j.neuron.2021.12.034)
+
+    -   EAE was induced using rMOG + CFA + PTX in Sox10:Cre-RCE:LoxP(EGFP)
+
+    -   Animals and cells were harvested at disease-peak (CS:3) (n = 2)
+
+    -   Cells where FACS sorted and single nuclei isolated
+
+    -   ATAC and RNA Multiome seq was performed using 10x Genomics ATAC + Gene Expression v1 Chemistry with n = 2 ind. replicates
+
+-   Processed R Object was acquired from GEO Series [**GSE193238**](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE193238)
+
+-   Oligodendrocytes were subset from full dataset by using author-provided cell type labels
+
+    -   including 2812 Ctrl
+
+    -   and 1533 EAE cells
+
+```{r LoadDataset}
+meijer2022 = readRDS(file = './CastelloBranco2020/GSE193238_EAE_CtrlPeak_multiomics_GEO.rds')
+meijer2022.ol = meijer2022[,grepl('MOL',meijer2022$Final_celltypes)]
+DefaultAssay(meijer2022.ol) = 'RNA'
+meijer2022.ol$sample %>% table
+```
+
+### Slc16a1/MCT1 gene expression
+
+Gene expression of Slc16a1 was extracted for each sample and Violin plots generated using ggplot2.
+
+```{r ggSetup}
+#setup
+jWidth = 0.2 #jitter width
+dWidth = 0.9 #separation overlaying geom_points in split violin 
+pSize = 0.5 #pointsize
+lwd = 0.2 #linewidth violin 
+colsCas = c('noEAE' = "#D4D4D4", 'EAE' = 'plum2')
+VlnPlotTheme = theme(panel.background = element_blank(),
+                     axis.line.x = element_line(),
+                     axis.text.x = element_text(angle = 45, hjust = 1),
+                     text=element_text(size=8,  family="Arial"),
+                     axis.text = element_text(size=8,color = 'black'),
+                     legend.position = 'right',
+                    strip.background = element_blank()) 
+```
+
+```{r FetchExpression}
+Slc16a1_EAE = FetchData(meijer2022.ol.re,vars = 'Slc16a1', 
+                      assay = 'RNA',
+                      slot = 'data',
+                      cells = colnames(meijer2022.ol.re)[meijer2022.ol.re$stim =='EAE']) %>% 
+            gather() %>%
+            mutate(stim = 'EAE')
+Slc16a1_noEAE = FetchData(meijer2022.ol.re,vars = 'Slc16a1', 
+                      slot = 'data',
+                      cells = colnames(meijer2022.ol.re)[meijer2022.ol.re$stim =='noEAE']) %>% 
+            gather() %>%
+            mutate(stim = 'noEAE')
+
+Slc16a1_exp = rbind(Slc16a1_EAE,Slc16a1_noEAE)
+Slc16a1_exp$stim = factor(Slc16a1_exp$stim, levels = c('noEAE','EAE'))
+```
+
+```{r PlotViolins}
+Slc16a1Plot = ggplot(Slc16a1_exp, aes(x = stim,
+                          y = value,
+                          fill = stim)) +
+                geom_violin(scale = 'width',lwd = lwd) + 
+                geom_jitter(position = position_jitterdodge(
+                                          jitter.width = jWidth, 
+                                          dodge.width = dWidth),
+                            size = pSize,
+                            alpha = pAlpha,
+                            stroke = 0) + 
+                scale_fill_discrete('Condition',type = colsCas) + 
+           #     scale_color_discrete('Sample',type = colsDots) + 
+                xlab('Slc16a1/MCT1 expression in Oligodendrocytes (Meijer et al. 2022)') + 
+                ylab('Log-normalized expression') +
+                VlnPlotTheme 
+Slc16a1Plot
+ggsave('Slc16a1_Meijer2022.png',plot = Slc16a1Plot, dpi = 600,width = 18,height = 5,units = 'cm')
+
+```
+
+# Session info
+
+```{r}
+session_info()
+```
