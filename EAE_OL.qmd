@@ -36,10 +36,12 @@ library(Signac)
     -   and 1533 EAE cells
 
 ```{r LoadDataset}
-meijer2022 = readRDS(file = './CastelloBranco2020/GSE193238_EAE_CtrlPeak_multiomics_GEO.rds')
+meijer2022 = readRDS(file = './RObjects/GSE193238_EAE_CtrlPeak_multiomics_GEO.rds')
 meijer2022.ol = meijer2022[,grepl('MOL',meijer2022$Final_celltypes)]
 DefaultAssay(meijer2022.ol) = 'RNA'
-meijer2022.ol$sample %>% table
+meijer2022.ol@meta.data  = meijer2022.ol@meta.data %>% 
+  mutate(stim = case_when(sample == 'Ctr' ~ 'noEAE',
+                          sample == 'EAE_peak' ~ 'EAE'))
 ```
 
 ### Slc16a1/MCT1 gene expression
@@ -52,26 +54,28 @@ jWidth = 0.2 #jitter width
 dWidth = 0.9 #separation overlaying geom_points in split violin 
 pSize = 0.5 #pointsize
 lwd = 0.2 #linewidth violin 
+pAlpha = 0.5 #opacity of points
 colsCas = c('noEAE' = "#D4D4D4", 'EAE' = 'plum2')
 VlnPlotTheme = theme(panel.background = element_blank(),
                      axis.line.x = element_line(),
                      axis.text.x = element_text(angle = 45, hjust = 1),
+                     axis.line.y = element_line(),
                      text=element_text(size=8,  family="Arial"),
                      axis.text = element_text(size=8,color = 'black'),
                      legend.position = 'right',
-                    strip.background = element_blank()) 
+                     strip.background = element_blank()) 
 ```
 
 ```{r FetchExpression}
-Slc16a1_EAE = FetchData(meijer2022.ol.re,vars = 'Slc16a1', 
+Slc16a1_EAE = FetchData(meijer2022.ol,vars = 'Slc16a1', 
                       assay = 'RNA',
                       slot = 'data',
-                      cells = colnames(meijer2022.ol.re)[meijer2022.ol.re$stim =='EAE']) %>% 
+                      cells = colnames(meijer2022.ol)[meijer2022.ol$stim =='EAE']) %>% 
             gather() %>%
             mutate(stim = 'EAE')
-Slc16a1_noEAE = FetchData(meijer2022.ol.re,vars = 'Slc16a1', 
+Slc16a1_noEAE = FetchData(meijer2022.ol,vars = 'Slc16a1', 
                       slot = 'data',
-                      cells = colnames(meijer2022.ol.re)[meijer2022.ol.re$stim =='noEAE']) %>% 
+                      cells = colnames(meijer2022.ol)[meijer2022.ol$stim =='noEAE']) %>% 
             gather() %>%
             mutate(stim = 'noEAE')
 
