@@ -1,0 +1,867 @@
+---
+title: "EAE_IC"
+format: html
+editor: visual
+---
+
+## Load Packages
+
+All package versions are recorded in a `renv` environment that is saved in the `renv.lock` . You can `install.packages('renv')` the and then automatically install a local copy of each dependency into the project folder using `renv::activate()`
+
+```{r loadPackages}
+#custom functions
+`%!in%` = Negate(`%in%`)
+
+#single cell packages 
+library(SeuratDisk)
+library(Seurat)
+library(scDblFinder)
+library(scater)
+
+#general packages 
+library(tidyverse)
+library(PCAtools)
+
+#graphics packages
+library(patchwork)
+library(scCustomize)
+library(facefuns)
+library(viridis)
+
+```
+
+## Load Data
+
+Reading in raw count matrices output by CellRanger, annotating meta data, merging both hMBP and WT counts into one object. Barcodes with less than 100 reads are discarded as empty droplets. You can download the cell ranger count matrix from GEO Acession: XXXX
+
+```{r loadRawSeuratObject}
+filenameWT = 'countMatrices/MQ_WT_EAE_IC_pre_m.h5'
+filenameHMBP = 'countMatrices/MQ_hMBP_EAE_IC_pre_m.h5'
+
+#Reading in Raw 10X count files 
+rawWT = Read10X_h5(filenameWT, use.names = TRUE, unique.features = TRUE)
+rawHMBP = Read10X_h5(filenameHMBP, use.names = TRUE, unique.features = TRUE)
+
+#Creating Seurat Objects 
+sc.taggedWT = CreateSeuratObject(counts = rawWT, min.cells = 0, min.genes = 200, project = 'EAE_IC_WT')
+sc.taggedWT$genotype = 'WT'
+sc.taggedHMBP = CreateSeuratObject(counts = rawHMBP, min.cells = 0, min.genes = 200, project = 'EAE_IC_HMBP')
+sc.taggedHMBP$genotype = 'hMBP'
+
+#Merging objects
+sc.tagged = merge(sc.taggedWT,sc.taggedHMBP)
+
+#filtering empty droplets 
+sc.tagged = sc.tagged %>% subset(nCount_RNA > 100)
+
+#factoring sample metadata 
+sc.tagged$sample = factor(sc.tagged$orig.ident,levels = c('EAE_IC_WT','EAE_IC_HMBP'))
+sc.tagged$genotype = factor(sc.tagged$genotype, levels = c('WT','hMBP'))
+
+#calculating mitochondrial genes
+sc.tagged$mitoRatio <- PercentageFeatureSet(object = sc.tagged, features = rownames(sc.tagged)[grep('^mt',x =rownames(sc.tagged))]
+) / 100
+```
+
+# QC of raw data
+
+```{r defineCutoffs}
+cutoff.reads = 1000
+cutoff.features = 500
+cutoff.mitoRatio = 0.05
+```
+
+## Density of Counts
+
+Plotting densities of counts/cell by sample. The line represents the applied cutoff.
+
+```{r QCdensityCounts}
+qc.counts.density = sc.tagged@meta.data %>% 
+  ggplot(aes(color=sample, x=nCount_RNA, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	ylab("Cell density") +
+  	geom_vline(xintercept = cutoff.reads) + 
+    theme(legend.position = 'none')
+
+qc.counts.violin = sc.tagged@meta.data %>% 
+  ggplot(aes(x=sample, y=nCount_RNA, fill= sample, color = sample)) + 
+    geom_violin(scale = 'width', alpha = 0.2) + 
+    geom_jitter(size = 0.1, alpha = 0.5, color = 'black') +
+    scale_fill_discrete() + 
+  	scale_y_log10() + 
+    geom_boxplot(width=0.2, outlier.size = 0, fill = 'white', color = 'black', coef = 0, outlier.color = NA) +
+    geom_hline(yintercept = cutoff.reads) + 
+  	ylab('Read counts') +
+    xlab('') + 
+    theme(legend.position = 'right')
+
+qc.counts.density + qc.counts.violin + 
+  plot_annotation(
+    tag_levels = 'A') 
+```
+
+## Density of Genes
+
+Plotting the density of detected genes/cell by sample. The line represents the applied cutoff.
+
+```{r QCdensityGenes}
+qc.features.density = sc.tagged@meta.data %>% 
+  ggplot(aes(color=sample, x=nFeature_RNA, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	ylab("Cell density") +
+  	geom_vline(xintercept = cutoff.features) + 
+    theme(legend.position = 'none')
+
+qc.features.violin = sc.tagged@meta.data %>% 
+  ggplot(aes(x=sample, y=nFeature_RNA, fill= sample, color = sample)) + 
+    geom_violin(scale = 'width', alpha = 0.2) + 
+    geom_jitter(size = 0.1, alpha = 0.5, color = 'black') +
+    scale_fill_discrete() + 
+  	scale_y_log10() + 
+    geom_boxplot(width=0.2, outlier.size = 0, fill = 'white', color = 'black', coef = 0, outlier.color = NA) +
+    geom_hline(yintercept = cutoff.features) + 
+  	ylab('Feature counts') +
+    xlab('') + 
+    theme(legend.position = 'right')
+
+qc.features.density + qc.features.violin + 
+  plot_annotation(
+    tag_levels = 'A') 
+```
+
+```{r QCmito}
+qc.mitoRatio.density = sc.tagged@meta.data %>% 
+  ggplot(aes(color=sample, x=mitoRatio, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	ylab("Cell density") +
+  	geom_vline(xintercept = cutoff.mitoRatio) + 
+    theme(legend.position = 'none')
+
+qc.mitoRatio.violin = sc.tagged@meta.data %>% 
+  ggplot(aes(x=sample, y=mitoRatio, fill= sample, color = sample)) + 
+    geom_violin(scale = 'width', alpha = 0.2) + 
+    geom_jitter(size = 0.1, alpha = 0.5, color = 'black') +
+    scale_fill_discrete() + 
+  	scale_y_log10() + 
+    geom_boxplot(width=0.2, outlier.size = 0, fill = 'white', color = 'black', coef = 0, outlier.color = NA) +
+    geom_hline(yintercept = cutoff.mitoRatio) + 
+  	ylab('Feature counts') +
+    xlab('') + 
+    theme(legend.position = 'right')
+
+qc.mitoRatio.density + qc.mitoRatio.violin + 
+  plot_annotation(
+    tag_levels = 'A') 
+```
+
+## Summary
+
+Summary plotting read counts vs. number of genes, colored by ratio of mitochondrial genes.
+
+```{r QCnGenesnUMIsMito}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+qc.combined = sc.tagged@meta.data %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA)) + 
+	    geom_jitter(aes(color=mitoRatio), size = 1) + 
+  	    scale_colour_gradient(low = "gray90", high = "black", limits = c(0,cutoff.mitoRatio),na.value = 'red') +
+      stat_smooth(method=lm) +
+    	scale_x_log10() + 
+    	scale_y_log10() + 
+    	theme_classic() +
+    	geom_vline(xintercept = cutoff.reads) +
+    	geom_hline(yintercept = cutoff.features) +
+      facet_wrap(~sample)
+qc.combined + plot_annotation(tag_levels = 'A') 
+```
+
+## Filtering
+
+Filtering for high-quality cells is done according to cutoffs stated above.
+
+```{r filtering}
+#sc.tagged = sc.taggedNoMbp %>% subset(nFeature_RNA > cutoff.features) %>% subset(nCount_RNA > cutoff.reads) %>% subset(mitoRatio < cutoff.mitoRatio) 
+sc.filt = sc.tagged %>% 
+            subset(nFeature_RNA > cutoff.features) %>% 
+            subset(nCount_RNA > cutoff.reads) %>% 
+            subset(mitoRatio < cutoff.mitoRatio) 
+```
+
+# Dimensional reduction
+
+## Normalization
+
+Count data is scaled to 10.000 counts/cell and log2p normalized.
+
+```{r normalizeAndScale}
+sc.norm = sc.filt %>% 
+          NormalizeData(normalization.method = "LogNormalize", scale.factor = 1e4) %>%
+          ScaleData()
+```
+
+## Variable genes
+
+2000 most variable genes are selected for downstream analysis.
+
+```{r findVariableFeatures}
+sc.norm = FindVariableFeatures(sc.norm)
+VariableFeaturePlot_scCustom(sc.norm,label = TRUE) 
+```
+
+## PCA
+
+Data is normalized and PCA calculated for 2000 most variable genes. Elbow plot shows %-variance explained by each PC. There is no clear shoulder. 30 PCs will be used for downstream analysis.
+
+```{r}
+#with seurat
+sc.norm = RunPCA(sc.norm)
+ElbowPlot(sc.norm,ndims = 50)
+```
+
+## UMAP
+
+For visualization, UMAP is calculated using the first 30 PC's and default parameters (n.neighbors = 30, min.dist = 0.3, seed.use = 42, etc.). Plotted below colored by sample.
+
+```{r}
+sc.norm = sc.norm %>% RunUMAP(dims = 1:30,n.neighbors = 30,min.dist = 0.3, seed.use = 42)
+DimPlot(sc.norm,group.by = 'sample', split.by = 'sample')&NoAxes()
+```
+
+## Unsupervised clustering
+
+Nearest-neighbor and shared nearest neighbor graphs are constructed using the first 30 dimensions of PCA and standard parameters (k=20, nn.method = 'annoy', annoy.metric = 'euclidean', prune.SNN = 1/15, n.trees = 50,...) Cells are clustered by modularity optimization on the Louvain algorithm (Waltman and van Eck (2013). Standard parameters are used (resolution = 0.8).
+
+```{r}
+sc.norm = sc.norm %>% FindNeighbors(dims = 1:30,k=20, nn.method  = 'annoy', annoy.metric = 'euclidean', prune.SNN  = 1/15, n.trees = 50)
+sc.norm = sc.norm %>% FindClusters(algorithm = 1)
+DimPlot_scCustom(sc.norm)&NoAxes()
+```
+
+# Known markers
+
+In order to assign cell types two approaches are used jointly: (1) Plotting of canonical immune cells markers (2) Calculating marker genes of individual clusters and manual search in databases with cell type annotations (proteinatlas.org, genecards.org)
+
+## CD45+ immune cells
+
+Plotting Ptprc (CD45) expression shows low background from CD45- cells. Clusters 16 and 17 look like contamination.
+
+```{r}
+clPlot = DimPlot_scCustom(sc.norm)&NoAxes()
+#Ptprc: CD45+, the cells that don't express are background 
+FeaturePlot(sc.norm, features = c('Ptprc')) + clPlot + plot_layout(ncol = 2)
+```
+
+## CD14+ Monocytes/Macrophages/Microglia
+
+Plotting Cd14,C1qa,Aif1 (IBA1), Trem2 shows as signal both in macrophages and microglia
+
+```{r}
+#monocytes: Cd14 : CD14 
+wrap_plots(FeaturePlot(sc.norm, features = c('Cd14','C1qa','Aif1','Trem2'))&NoAxes())+clPlot
+```
+
+Plotting P2ry12 and Tmem 119 as markers for Microglia. Both are fairly specific to Clusters 4,5,9. C1qa and Cx3cr also have higher expression in these clusters.
+
+```{r}
+wrap_plots(FeaturePlot(sc.norm, features = c('P2ry12','Tmem119','C1qa','Cx3cr1'))&NoAxes())+clPlot
+```
+
+Plotting Fcgr1 (CD64), Ccr2, Cxcr4 as markers for macrophages. They are all strongest in Clusters 0,1,2,3,13
+
+```{r}
+#macrophages: Fcgr1: CD64, Cx3cr1
+wrap_plots(FeaturePlot(sc.norm, features = c('Fcgr1','Ccr2','Cxcr4'))&NoAxes())+clPlot
+```
+
+## CD3+ T-cells
+
+Plotting Cd3g, Cd3d (CD3) and Trbc1, Trbc2 (TCR) shows that clusters 7,6,12 are T-Cells. (1) Cd4 (CD4) and Cd8a (CD8) are often not well detected in scRNAseq data but can see both populations present (2) NK cells are defined by absence of CD3 and e.g. Klrk1 (CD314), Klrb1 (CD161), Ncr1 (NKp46) we can see a population that is CD3-,CD314+,NKp46+ in one of the T-cell clusters
+
+```{r}
+#T Cells Cd3g/Cd3d: CD3
+wrap_plots(FeaturePlot(sc.norm, features = c('Cd3g','Cd3d','Trbc1', 'Trbc2'))&NoAxes())+clPlot #find other markers for subtypes as Cd4/8 are not well captures in RNA
+
+#T cell subtypes can not be easily resolved by the clustering of transcriptome data 
+wrap_plots(FeaturePlot(sc.norm, features = c('Cd4','Cd8a'),ncol = 1)&NoAxes())+clPlot #find other markers for subtypes as Cd4/8 are not well captures in RNA
+
+#NK cd3-, klrk1+ klrb1+ Ncr1+ 
+wrap_plots(FeaturePlot(sc.norm,features = c('Klrk1','Klrb1','Ncr1','Cd3d'))&NoAxes())+clPlot
+```
+
+## CD19+ B-cells
+
+Plotting Cd19 (CD19), Ms4a1 (CD20), Cd79a+Cd79b (CD79) shows B-cells in Cluster 18. Looks like a very small percentage, there might be some selection bias.
+
+```{r}
+wrap_plots(FeaturePlot(sc.norm, features = c('Cd19','Ms4a1','Cd79a','Cd79b'))&NoAxes())+clPlot
+#very few b cells, either EAE depletes B cells or 10X protocol selects against them
+```
+
+## Conventional DCs
+
+Plotting Itgax (CD11c), H2-Aa, H2-ab1, H2-D1 (MHCII) as markers for conventional dendritic cells (DC). Both are not very specific, strongest in Cluster 10. Additionally, Xcr1 and Clec9a (CD370) are supposed to be markers for DC presenting to CD8+ T-cells which are also concentrated in Cluster 10.
+
+```{r}
+wrap_plots(FeaturePlot(sc.norm, features = c('Itgax','H2-Aa','Xcr1','Clec9a'))&NoAxes())+clPlot
+```
+
+## Siglec-H+ plasmacytoid DCs
+
+Plotting Siglech (Siglec-H), which also marks Microglia and Bst2 (CD317) as Markers of Plasmacytoid DCs. Both are strongest in Cluster 14.
+
+```{r}
+wrap_plots(FeaturePlot(sc.norm, features = c('Siglech','Bst2'),ncol = 1) & NoAxes()) + clPlot
+```
+
+## Granulocytes
+
+Expression of Ngp (Neutrophilic granule protein), S100a8 and Retnlg identfy Cluster 15 as granulocytes
+
+```{r}
+#granulocytes
+wrap_plots(FeaturePlot(sc.norm, features = c('S100a8','Ngp','Retnlg'))&NoAxes()&NoAxes())+clPlot
+```
+
+## Identifying remaining clusters
+
+Clusters 16, 11 and 17 still remain unclear. Checking by calculating unqiue clustermarkers:
+
+```{r}
+FindMarkers(sc.norm, group.by = 'seurat_clusters',ident.1 = 17, logfc.threshold = 2, min.diff.pct = 0.7, only.pos = TRUE)
+```
+
+Cluster 17 seems to be oligendrocytes (Mag, Klk6, Ptgds)
+
+```{r}
+FindMarkers(sc.norm, group.by = 'seurat_clusters',ident.1 = 16, logfc.threshold = 2, min.diff.pct = 0.7, only.pos = TRUE)
+sc.norm %>% FeaturePlot('Cldn5')
+```
+
+Tm4sf1 points to endothelial cells for cluster 16, which can be confirmed by looking at Cldn5
+
+One cluster remains unannotated. By calculating marker genes we find Fscn1 and Ccr7 among the top markers which are annotated in literature as highly specific markers for activation of dendritic cells.
+
+```{r}
+sc.norm %>% FindMarkers(ident.1 = '11',logfc.threshold = 0.5, only.pos = TRUE,min.diff.pct = 0.7)
+```
+
+## Assigning preliminary cell type labels.
+
+```{r}
+#assigning original cell type labels based on old seurat clusters
+sc.norm$clusters = sc.norm$seurat_clusters
+Idents(sc.norm) = sc.norm$clusters
+sc.norm = RenameIdents(sc.norm,
+'0' = 'Monocytes/Macrophages',
+'1' = 'Monocytes/Macrophages',
+'2' = 'Monocytes/Macrophages',
+'3' = 'Monocytes/Macrophages',
+'13' = 'Monocytes/Macrophages',
+'4' = 'Microglia',
+'5' = 'Microglia',
+'9' = 'Microglia',
+'6' = 'T-Cells',
+'7' = 'T-Cells',
+'12' = 'T-Cells',
+'8' = 'Cycling cells',
+'10' = 'Conventional DC',
+'11' = 'Activated DC',
+'14' = 'Plasmacytoid DC',
+'15' = 'Granulocytes',
+'16' = 'Endothelial cells',
+'17' = 'Glia cells',
+'18' = 'B-Cells')
+sc.norm$celltypes = Idents(sc.norm)
+```
+
+## Cell cycle
+
+Cell cycle phase scoring (using an enrichment approach adapted from Tirosh et al. 2016) shows actively dividing cells only in Cluster 8 which is recapitulated by expression of canonical markers for proliferating cells Top2a and Mki67.This cluster shows markers for both T-cells and microglia so we have to regress out cell cycle phase to put each cell type in their corresponding clusters.
+
+```{r scoreCellCylcle}
+cell_cycle_genes = read.csv('Mus_musculus_CC.csv')
+
+# Download the appropriate Ensembldb database
+annotations = read.csv('geneInfoEns105.csv')
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers = left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes = cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes = cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
+# Perform cell cycle scoring
+sc.norm = CellCycleScoring(sc.norm,
+                                   g2m.features = g2m_genes,
+                                   s.features = s_genes)
+
+
+# Visualize the UMAP, grouping by cell cycle phase
+wrap_plots(DimPlot(sc.norm,group.by= "Phase", split.by = 'Phase',ncol = 1)&NoAxes()) + wrap_plots( FeaturePlot(sc.norm,features = c('Top2a','Mki67'), ncol = 1)&NoAxes()) 
+```
+
+```{r regressOutCC,fig.width = 8}
+scCC <- ScaleData(sc.norm, vars.to.regress = c("S.Score", "G2M.Score"), features = rownames(sc.norm))
+
+scCC = scCC %>% 
+        RunPCA %>% 
+        RunUMAP(dims = 1:30,n.neighbors = 30,min.dist = 0.3, seed.use = 42)
+```
+
+Now cycling cells are closer to the microglia and t-cell clusters
+
+```{r,fig.asp = 0.5,fig.height=2}
+#Here we can see that 'cycling cells' cluster is now split mostly between Microglia and T-Cells 
+scCC %>% DimPlot_scCustom(label=TRUE,group.by = 'celltypes') + 
+scCC %>% FeaturePlot(c('Top2a','Mki67'))
+```
+
+## Doublet & contamination removal
+
+In order to improve the clustering we will also remove doublet cells using scDoubletFinder and filter out any clusters that are not immune cells. As scDoubletFinder relies on randomization the clustering results downstream of that will not be 100% reproducible via this notebook. Total number of clusters and assignment of cells to (unsupervised) clusters will vary slightly. Therefore we provide the code we used and will then load a list containing the filtered cell barcodes as they were output when we ran the function at the end of the snippet in order to generate exactly the same figures as presented in the paper.
+
+```{r}
+sce = as.SingleCellExperiment(scCC)
+sce.dbl = scDblFinder(sce)
+
+(plotUMAP(sce,colour_by = 'celltypes') + 
+ plotUMAP(sce.dbl,colour_by = 'scDblFinder.score')) / 
+(plotUMAP(sce.dbl,colour_by = 'nCount_RNA') + 
+ plotUMAP(sce.dbl,colour_by = 'nFeature_RNA')) 
+```
+
+```{r}
+#scdblfinder also predicts which cells are singlets absolutly 
+plotUMAP(sce.dbl,colour_by = 'scDblFinder.class')
+
+#and we can use this information to subset the seurat object 
+sce.noDbl = sce.dbl[,sce.dbl$scDblFinder.class == 'singlet']
+scCC.noDbl = scCC[,sce.dbl$scDblFinder.class == 'singlet']
+
+
+#after throwing out doublets recompute dimensional reductions and clustering 
+scCC.noDblRE = scCC.noDbl %>% 
+                RunPCA %>%  
+                RunUMAP(dims = 1:30,n.neighbors = 30,min.dist = 0.3, seed.use = 42) %>%  
+                FindNeighbors(dims =  1:30) %>% 
+                FindClusters(resolution = 1.1) %>% 
+                BuildClusterTree()
+```
+
+```{r,fig.asp = 0.5}
+scCC.noDblRE.clean  = scCC.noDblRE[,scCC.noDblRE$seurat_clusters %!in% c(19,20)]
+#scCC.noDblRE.clean %>% colnames %>% 
+#                       as.data.frame() %>% 
+#                       write_csv(file = 'scCC.noDblRE.clean_barcodes.csv')
+filtered_bc = read_csv(file = 'scCC.noDblRE.clean_barcodes.csv')$.
+scCC.noDblRE.clean = scCC[,filtered_bc]
+scCC.noDblRE.clean = scCC.noDblRE.clean %>% 
+                      RunPCA %>%  
+                      RunUMAP(dims = 1:30,n.neighbors = 30,min.dist = 0.3, seed.use = 42) %>%  
+                      FindNeighbors(dims =  1:30) %>% 
+                      FindClusters(resolution = 0.8) %>% 
+                      BuildClusterTree() 
+
+scCC.noDblRE.clean %>% DimPlot_scCustom(label = TRUE) + scCC.noDblRE.clean %>% DimPlot_scCustom(group.by = 'celltypes', label = TRUE)
+```
+
+Now we assign final cell type labels.
+
+```{r}
+scCC.noDblRE.clean$clusters = scCC.noDblRE.clean$seurat_clusters
+Idents(scCC.noDblRE.clean) = scCC.noDblRE.clean$clusters
+scCC.noDblRE.clean = RenameIdents(scCC.noDblRE.clean,
+'0' = 'Macrophages',
+'1' = 'Macrophages',
+'2' = 'Macrophages',
+'3' = 'Macrophages',
+
+'4' = 'Microglia',
+'5' = 'Microglia',
+'12' = 'Microglia',
+'14' = 'Microglia',
+
+'6' = 'T-Cells',
+'8' = 'T-Cells',
+'11' = 'T-Cells',
+
+'7' = 'Conventional DC',
+
+'9' = 'Activated DC',
+
+'10' = 'Plasmacytoid DC',
+
+'13' = 'Granulocytes',
+
+'15' = 'B-Cells')
+scCC.noDblRE.clean$celltypesNew = Idents(scCC.noDblRE.clean)
+scCC.noDblRE.clean %>% DimPlot_scCustom(group.by = 'celltypesNew',label = TRUE) 
+```
+
+```{r}
+#SaveH5Seurat(scCC.noDblRE.clean, file = './RObjects/scCC.noDblRE.clean.h5seurat')
+```
+
+# Figures
+
+The following blocks generate the figures as found in the paper. If you want to skip the preprocessing steps, you can load the final object here
+
+```{r}
+#scCC.noDblRE.clean = LoadH5Seurat('./RObjects/scCC.noDblRE.clean.h5seurat')
+```
+
+```{r, fig.asp = 0.25,fig.width = 10}
+#set graphical plot paramters 
+cols = c('#D4D4D4','#CCF9E8')
+colsDots = c('black','#008000')
+jWidth = 0.3
+dWidth = 0.6
+pSize = 0.2
+pAlpha = 0.3 
+
+VlnPlotTheme = theme(panel.background = element_blank(),
+                     axis.line.x = element_line(),
+                     text=element_text(size=8,  family="Arial"),
+                     axis.text = element_text(size=8,color = 'black'))
+
+#define datasets
+sc.t  = scCC.noDblRE.clean %>% subset(celltypesNew == 'T-Cells')
+sc.mac = scCC.noDblRE.clean %>% subset(celltypesNew == 'Macrophages')
+sc.mg = scCC.noDblRE.clean %>% subset(celltypesNew %in% c("Microglia"))
+
+#define markers
+#CD25 = Il2ra, CD69, CD71 = Tfrc,HLA-DR,Cd137 = Tnfrsf9, CD107a = Lamp1, 
+tActMarker = c('Il12a','Ifng','Spp1','Il17a','Cd44','Cd69','Ccl2')
+length(tActMarker) #7
+
+mgActMarker = c('Hexb','Tmem119','P2ry12','Axl','Cybb','Cd68','H2-Aa','Cd74','Cd86','Trem2','Tyrobp','Apoe','Itgax','Lgals3')
+length(mgActMarker) #15
+
+cytokines = c('Ccl5','Ccl6','Cxcl10','Il6','Csf2','Tnf')
+
+macActGenes = c('Ly6c2','Ccr2','Fn1','Cd44')
+macHomGenes = c('Fcgr1','Ms4a7','Mertk')
+macGenes = c(macHomGenes,macActGenes)
+```
+
+## Microglia
+
+```{r}
+#Microglia 
+dfMgWt = FetchData(sc.mg,vars = mgActMarker, slot = 'data',cells = colnames(sc.mg)[sc.mg$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
+dfMgHmbp = FetchData(sc.mg,vars = mgActMarker, slot = 'data',cells = colnames(sc.mg)[sc.mg$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+dfMg = rbind(dfMgWt,dfMgHmbp)
+
+mgPlot = ggplot(dfMg, aes(x = factor(key,level = mgActMarker), 
+                          y = value,
+                          fill = factor(genotype,levels = c('WT','hMBP')))) +
+                geom_split_violin(scale = 'width') + 
+                geom_jitter(position = position_jitterdodge(
+                                          jitter.width = jWidth, 
+                                          dodge.width = dWidth),
+                            size = pSize,
+                            alpha = pAlpha,
+                            stroke = 0,
+                            aes(color = factor(genotype,levels = c('WT','hMBP')))) + 
+                scale_fill_discrete(type = cols) + 
+                scale_color_discrete(type = colsDots) + 
+                ylim(0,7) +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                      legend.position = 'none',
+                      axis.line.y = element_line(),
+                      axis.title.y = element_text(hjust = 1)) + 
+                xlab('Microglia activation genes') + 
+                ylab('Log1p-normalized expression') + 
+                VlnPlotTheme
+```
+
+```{r}
+#T-Cells
+dfTWt = FetchData(sc.t,vars = tActMarker, slot = 'data',cells = colnames(sc.t)[sc.t$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
+dfTHmbp = FetchData(sc.t,vars = tActMarker, slot = 'data',cells = colnames(sc.t)[sc.t$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+dfT = rbind(dfTWt,dfTHmbp)
+
+tPlot = ggplot(dfT, aes(x = factor(key,level = tActMarker), y = value,fill = factor(genotype,levels = c('WT','hMBP')))) + 
+              geom_split_violin(scale = 'width') + 
+                geom_jitter(position = position_jitterdodge(
+                                          jitter.width = jWidth, 
+                                          dodge.width = dWidth),
+                            size = pSize,
+                            alpha = pAlpha,
+                            stroke = 0,
+                          aes(color = factor(genotype,levels = c('WT','hMBP')))) + 
+              scale_fill_discrete('Genotype',type = cols) + 
+              scale_color_discrete('Genotype',type = colsDots) + 
+              ylim(0,7) + 
+              theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                    axis.title.y = element_blank(),
+                    axis.ticks.y = element_blank(),
+                    axis.text.y = element_blank(),
+                    axis.line.y.left = element_blank(),
+                    legend.position = 'none') + 
+              xlab('T-Cell activation genes') + 
+              VlnPlotTheme
+```
+
+## Cytokines
+
+```{r}
+dfCkWt = FetchData(sc.IC,vars = cytokines, slot = 'data',cells = colnames(sc.IC)[sc.IC$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
+dfCkHmbp = FetchData(sc.IC,vars = cytokines, slot = 'data',cells = colnames(sc.IC)[sc.IC$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+dfCk = rbind(dfCkWt,dfCkHmbp)
+
+ckPlot = ggplot(dfCk, aes(x = factor(key,level = cytokines), 
+                          y = value,
+                          fill = factor(genotype,levels = c('WT','hMBP')))) +
+                geom_split_violin(scale = 'width') + 
+                geom_jitter(position = position_jitterdodge(
+                                          jitter.width = jWidth, 
+                                          dodge.width = dWidth),
+                            size = pSize,
+                            alpha = pAlpha,
+                            stroke = 0,
+                            aes(color = factor(genotype,levels = c('WT','hMBP')))) + 
+                scale_fill_discrete('Genotype',type = cols) + 
+                scale_color_discrete('Genotype',type = colsDots) + 
+                ylim(0,7) +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                      legend.position = 'right',
+                      axis.line.y = element_blank(),
+                      axis.text.y = element_blank(),
+                      axis.title.y = element_blank(),
+                      axis.ticks.y = element_blank()) + 
+                xlab('Cytokines') + 
+                ylab('Log1p-normalized expression') +  #as ln(counts/counts per cell * 10e4 +1
+                VlnPlotTheme
+
+```
+
+## Macrophages
+
+```{r}
+dfMacWt = FetchData(sc.mac,vars = macGenes, slot = 'data',cells = colnames(sc.mac)[sc.mac$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
+dfMacHmbp = FetchData(sc.mac,vars = macGenes, slot = 'data',cells = colnames(sc.mac)[sc.mac$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+dfMac = rbind(dfMacWt,dfMacHmbp)
+
+macPlot = ggplot(dfMac, aes(x = factor(key,level = macGenes), 
+                          y = value,
+                          fill = factor(genotype,levels = c('WT','hMBP')))) +
+                geom_split_violin(scale = 'width') + 
+                geom_jitter(position = position_jitterdodge(
+                                          jitter.width = jWidth, 
+                                          dodge.width = dWidth),
+                            size = pSize,
+                            alpha = pAlpha,
+                            stroke = 0,
+                            aes(color = factor(genotype,levels = c('WT','hMBP')))) + 
+                scale_fill_discrete('Genotype',type = cols) + 
+                scale_color_discrete('Genotype',type = colsDots) + 
+                ylim(0,7) +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                      legend.position = 'none',
+                      axis.line.y = element_line(),
+                      axis.title.y = element_text(hjust = 0.85 )) + 
+                xlab('Macrophage activation genes') + 
+                ylab('Log1p-normalized expression') +  #as ln(counts/counts per cell * 10e4 +1
+                VlnPlotTheme
+```
+
+```{r,fig.width = 2.5,fig.height = 1}
+mgPlot %>% ggsave('mg.png', plot = ., dpi = 600, width = 10, height = 4, units = 'cm')
+mgPlot
+```
+
+```{r fig.width = 4.5,fig.height = 1}
+(macPlot + tPlot + ckPlot) %>%ggsave('t_mac_ck.png',plot = .,dpi = 600,width = 18,height = 4,units = 'cm')
+
+(macPlot + tPlot + ckPlot)
+```
+
+```{r fig.width = 2.3,fig.height = 2}
+scCC.noDblRE.clean$sample = factor(scCC.noDblRE.clean$sample, levels = c('EAE_IC_WT','EAE_IC_HMBP'))
+scCC.noDblRE.clean$celltypesNew = scCC.noDblRE.clean$celltypesNew %>% recode(Monocytes = 'Activated DC')
+
+#changed SingleDimPlot using trace('SingleDimPlot',edit = TRUE) with geom_point(..., stroke = 0) to get finer detail 
+umapCelltypes = scCC.noDblRE.clean %>% DimPlot_scCustom(group.by = 'celltypesNew',
+                                           label = FALSE,
+                                           pt.size = 0.5) & 
+                            NoAxes() &
+                            theme(legend.position = c(0.45,0.10),
+                                 # legend.position = 'none',
+                                  plot.title = element_blank(),
+                                  legend.text = element_text(size = 6),
+                                  legend.key.size = unit(0.6,'lines'),
+                                  plot.margin = margin(0,0,0,0))  &
+                            guides(color = guide_legend(ncol = 2,override.aes = list(size = 2)))
+umapSamples = scCC.noDblRE.clean %>% 
+                  DimPlot(split.by = 'sample', 
+                  group.by = 'sample', 
+                  cols = colsDots,
+                  pt.size = 0.2)  & 
+                  NoAxes() & 
+                  theme(legend.position = 'none',
+                        plot.title = element_blank(),
+                        strip.text = element_text(size = 8,family = 'arial'))
+
+umap = umapCelltypes + inset_element(umapSamples, top = 1,
+                                                 right = 1,
+                                                 left = 0.4,
+                                                 bottom = 0.5)
+
+ggsave('umap.png',plot = umap,dpi = 600,width = 9.22,height = 8.2,units = 'cm')
+umap
+```
+
+# Extended Figures
+
+## QC
+
+```{r fig.width=4/4, fig.height=12/4}
+themeVln = theme_classic() + 
+           theme(
+                  legend.position = 'none',
+                  text = element_text(size = 8)
+                )
+pSize = 0.3
+lwd = 0.2
+bpWidth = 0.1
+linetype = 'dashed'
+
+qc.counts.violin = sc.tagged@meta.data %>% 
+  ggplot(aes(x=genotype, y=nCount_RNA, fill= genotype, color = genotype)) + 
+    geom_violin(scale = 'width',lwd = lwd) + 
+    geom_jitter(size = pSize, alpha = pAlpha, stroke = 0) +
+    scale_color_discrete('Genotpye', type = colsDots) + 
+    scale_fill_discrete('Genotpye',type = cols)  + 
+    geom_boxplot(width = bpWidth, outlier.size = 0, coef = 0, outlier.color = NA,lwd = lwd) +
+    scale_y_log10() + 
+    geom_hline(yintercept = cutoff.reads, linetype=linetype) + 
+  	ylab('Read Counts') +
+    xlab('') + 
+    themeVln
+    
+qc.features.violin = sc.tagged@meta.data %>% 
+  ggplot(aes(x=genotype, y=nFeature_RNA, fill= genotype, color = genotype)) + 
+    geom_violin(scale = 'width',lwd = lwd) + 
+    geom_jitter(size = pSize, alpha = pAlpha, stroke = 0) +
+    scale_color_discrete('Genotype', type = colsDots) + 
+    scale_fill_discrete('Genotype',type = cols)  + 
+    geom_boxplot(width = bpWidth, outlier.size = 0, coef = 0, outlier.color = NA,lwd = lwd) +
+    scale_y_log10() + 
+    geom_hline(yintercept = cutoff.features, linetype = linetype) + 
+  	ylab('Feature Counts') +
+    xlab('') + 
+    themeVln
+
+qc.mitoRatio.violin = sc.tagged@meta.data %>% 
+  ggplot(aes(x=genotype, y=mitoRatio, fill= genotype, color = genotype)) + 
+    geom_violin(scale = 'width',lwd = lwd) + 
+    geom_jitter(size = pSize, alpha = pAlpha, stroke = 0) +
+    scale_color_discrete('Genotpye', type = colsDots) + 
+    scale_fill_discrete('Genotpye',type = cols)  + 
+    geom_boxplot(width = bpWidth, outlier.size = 0, coef = 0, outlier.color = NA,lwd = lwd) +
+    scale_y_log10() + 
+    geom_hline(yintercept = cutoff.mitoRatio, linetype=linetype) + 
+  	ylab('Mitochondrial Read Ratio') +
+    xlab('') + 
+    themeVln
+
+    qcplot = qc.counts.violin / qc.features.violin / qc.mitoRatio.violin
+qcplot
+ggsave('qc_plots.png',qcplot,dpi = 600,width = 4,height = 12,units = 'cm')
+```
+
+## PCA
+
+Plotting the biplots for first 10 PCs in pairs. No obvious separation is visible based on sample identity.
+
+```{r fig.asp=1}
+#with PCAtools to do some deeper analyses 
+set.seed(42)
+VarFeatNorm = scCC.noDblRE.clean@assays$RNA@scale.data[VariableFeatures(scCC.noDblRE.clean),]
+
+#shuffle colnames around to avoid overplotting in the biplot
+x = colnames(VarFeatNorm)
+set.seed(42)
+x = sample(x)
+VarFeatNorm = VarFeatNorm[,x]
+metaData = scCC.noDblRE.clean@meta.data[x,]
+
+#run PCA
+p = PCAtools::pca(VarFeatNorm,rank = 10,metadata = metaData)
+```
+
+```{r PCA, fig.width = 9, fig.asp =1}
+colr = c('grey','darkgreen')
+cols = c('#D4D4D4','#CCF9E8')
+
+pcaPlot = pairsplot(p,
+                    colby = 'sample',
+                    components = getComponents(p, seq_len(10)), 
+                    gridlines.major = FALSE, 
+                    gridlines.minor = FALSE, 
+                    lab = NULL, 
+                    hline = 0, 
+                    vline = 0, 
+                    plotaxes = FALSE,
+                    pointSize = 0.1, 
+                    colkey = colr) & 
+        theme(plot.title = element_text(size = 8))
+pcaPlot
+
+ggsave('pca_pairsplot.png',pcaPlot,dpi = 600,width = 9,height = 9,units = 'cm')
+```
+
+## CellTypeMarkers
+
+```{r,fig.width  = 11/4,fig.height=12.9/4}
+CellTypeMarkers = c(
+                    'Cd19','Ms4a1',
+                    'S100a8','Retnlg',
+                    'Siglech','Bst2',
+                    'Ccr7','Fscn1',
+                    'Itgax','Btla',
+                    'Cd3d','Trbc2',
+                    'Tmem119','Cx3cr1',
+                    'Arg1','Cd68')
+
+
+Idents(scCC.noDblRE.clean) = scCC.noDblRE.clean$celltypesNew
+celltypeDot = DotPlot_scCustom(scCC.noDblRE.clean,features = CellTypeMarkers,
+                               x_lab_rotate = TRUE,
+                               dot.scale = 5,
+                               flip_axes = TRUE,
+                               scale = TRUE) + 
+                scale_color_viridis() &
+                theme(legend.position = c(-0.12,-0.25),
+                      legend.direction = 'horizontal',
+                      legend.box = 'horizontal',
+                      legend.key.size = unit(0.6,'lines'),
+                      text = element_text(size = 6),
+                      axis.text = element_text(size = 8),
+                      plot.margin = margin(0,0,40,0))
+celltypeDot
+ggsave('celltypes_dotplot.png',celltypeDot,dpi = 600,width = 11,height = 12.9,units = 'cm')
+```
+
+```{r cellTypeFeature,fig.width = 7/4,fig.height=12.9/4}
+celltypeFeature = FeaturePlot(scCC.noDblRE.clean,
+                              rev(CellTypeMarkers),ncol = 2,
+                              pt.size = 0.1) & 
+                    NoAxes() & 
+                    scale_color_viridis() & 
+                    theme(legend.position = 'right', 
+                          legend.key.size = unit(0.3,'lines'),
+                          legend.text = element_text(size = 4),
+                          plot.title = element_text(size = 8))
+celltypeFeature
+ggsave('celltypes_feature.png',celltypeFeature,dpi = 600,width = 7,height = 12.9,units = 'cm')
+
+```
