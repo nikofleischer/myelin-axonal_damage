@@ -3,5 +3,5 @@
 .RData
 .Ruserdata
 renv/
-RObjects/
-countMatrices/
+*.h5seurat
+*.rds
