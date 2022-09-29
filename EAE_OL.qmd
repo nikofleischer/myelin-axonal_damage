@@ -13,6 +13,7 @@ library(tidyverse)
 library(ggtext)
 library(Seurat)
 library(Signac)
+library(devtools)
 ```
 
 ## Load Data

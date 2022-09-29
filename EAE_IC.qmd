@@ -613,8 +613,14 @@ tPlot = ggplot(dfT, aes(x = factor(key,level = tActMarker), y = value,fill = fac
 ## Cytokines
 
 ```{r}
-dfCkWt = FetchData(sc.IC,vars = cytokines, slot = 'data',cells = colnames(sc.IC)[sc.IC$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
-dfCkHmbp = FetchData(sc.IC,vars = cytokines, slot = 'data',cells = colnames(sc.IC)[sc.IC$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+dfCkWt = FetchData(scCC.noDblRE.clean,vars = cytokines, 
+                   slot = 'data',
+                   cells = colnames(scCC.noDblRE.clean)[scCC.noDblRE.clean$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
+
+dfCkHmbp = FetchData(scCC.noDblRE.clean,vars = cytokines, 
+                     slot = 'data',
+                     cells = colnames(scCC.noDblRE.clean)[scCC.noDblRE.clean$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+
 dfCk = rbind(dfCkWt,dfCkHmbp)
 
 ckPlot = ggplot(dfCk, aes(x = factor(key,level = cytokines), 
@@ -638,7 +644,7 @@ ckPlot = ggplot(dfCk, aes(x = factor(key,level = cytokines),
                       axis.title.y = element_blank(),
                       axis.ticks.y = element_blank()) + 
                 xlab('Cytokines') + 
-                ylab('Log1p-normalized expression') +  #as ln(counts/counts per cell * 10e4 +1
+                ylab('Log1p-normalized expression') +  
                 VlnPlotTheme
 
 ```
@@ -646,8 +652,14 @@ ckPlot = ggplot(dfCk, aes(x = factor(key,level = cytokines),
 ## Macrophages
 
 ```{r}
-dfMacWt = FetchData(sc.mac,vars = macGenes, slot = 'data',cells = colnames(sc.mac)[sc.mac$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
-dfMacHmbp = FetchData(sc.mac,vars = macGenes, slot = 'data',cells = colnames(sc.mac)[sc.mac$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+dfMacWt = FetchData(sc.mac,vars = macGenes, 
+                    slot = 'data',
+                    cells = colnames(sc.mac)[sc.mac$sample =='EAE_IC_WT']) %>% gather() %>% mutate(genotype = 'WT')
+
+dfMacHmbp = FetchData(sc.mac,vars = macGenes, 
+                      slot = 'data',
+                      cells = colnames(sc.mac)[sc.mac$sample =='EAE_IC_HMBP']) %>% gather() %>% mutate(genotype = 'hMBP')
+
 dfMac = rbind(dfMacWt,dfMacHmbp)
 
 macPlot = ggplot(dfMac, aes(x = factor(key,level = macGenes), 
@@ -685,21 +697,21 @@ mgPlot
 ```
 
 ```{r fig.width = 2.3,fig.height = 2}
-scCC.noDblRE.clean$sample = factor(scCC.noDblRE.clean$sample, levels = c('EAE_IC_WT','EAE_IC_HMBP'))
-scCC.noDblRE.clean$celltypesNew = scCC.noDblRE.clean$celltypesNew %>% recode(Monocytes = 'Activated DC')
+scCC.noDblRE.clean$sample = factor(scCC.noDblRE.clean$sample, 
+                                   levels = c('EAE_IC_WT','EAE_IC_HMBP'))
 
 #changed SingleDimPlot using trace('SingleDimPlot',edit = TRUE) with geom_point(..., stroke = 0) to get finer detail 
+
 umapCelltypes = scCC.noDblRE.clean %>% DimPlot_scCustom(group.by = 'celltypesNew',
                                            label = FALSE,
                                            pt.size = 0.5) & 
-                            NoAxes() &
-                            theme(legend.position = c(0.45,0.10),
-                                 # legend.position = 'none',
-                                  plot.title = element_blank(),
-                                  legend.text = element_text(size = 6),
-                                  legend.key.size = unit(0.6,'lines'),
-                                  plot.margin = margin(0,0,0,0))  &
-                            guides(color = guide_legend(ncol = 2,override.aes = list(size = 2)))
+                                           NoAxes() &
+                                           theme(legend.position = c(0.45,0.10),
+                                                  plot.title = element_blank(),
+                                                  legend.text = element_text(size = 6),
+                                                  legend.key.size = unit(0.6,'lines'),
+                                                  plot.margin = margin(0,0,0,0))  &
+                                           guides(color = guide_legend(ncol = 2,override.aes = list(size = 2)))
 umapSamples = scCC.noDblRE.clean %>% 
                   DimPlot(split.by = 'sample', 
                   group.by = 'sample', 
@@ -725,10 +737,8 @@ umap
 
 ```{r fig.width=4/4, fig.height=12/4}
 themeVln = theme_classic() + 
-           theme(
-                  legend.position = 'none',
-                  text = element_text(size = 8)
-                )
+           theme(legend.position = 'none',
+                  text = element_text(size = 8))
 pSize = 0.3
 lwd = 0.2
 bpWidth = 0.1
